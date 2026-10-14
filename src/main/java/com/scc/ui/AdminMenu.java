@@ -44,8 +44,8 @@ public class AdminMenu {
     private static void viewAllUsers() {
         String sql = "SELECT * FROM Users";
         try (Connection conn = DatabaseConnection.connect();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
             System.out.println("\n--- User Accounts ---");
             while (rs.next()) {
                 System.out.printf("ID: %d | Name: %s | Role: %s | Status: %s%n",
@@ -58,6 +58,7 @@ public class AdminMenu {
             System.out.println("Error viewing users: " + e.getMessage());
         }
     }
+
 
     private static void updateUserStatus(String newStatus) {
         int userId = -1;
