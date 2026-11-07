@@ -10,7 +10,7 @@ import java.util.Scanner;
 
 public class AdminMenu {
 
-    private static final Scanner sc = new Scanner(System.in);
+    private static final Scanner sc = ConsoleInput.sc;
 
     public static void showAdminMenu(User currentAdmin) {
 
