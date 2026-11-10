@@ -48,55 +48,119 @@ public class Authentication {
         }
     }
 
+
     private static void registerFlow() {
 
-        System.out.print("Full Name: ");
-        String fullName = ConsoleInput.sc.nextLine().trim();
+        System.out.println("\n========== USER REGISTRATION ==========");
+        System.out.println("Enter 0 at any prompt to cancel.");
 
-        System.out.print("Username: ");
-        String username = ConsoleInput.sc.nextLine().trim();
+        String fullName = getRegistrationInput("Enter full name: ");
+        if (fullName == null) return;
 
-        System.out.print("Password: ");
-        String password = ConsoleInput.sc.nextLine().trim();
+        String username = getRegistrationInput("Enter username: ");
+        if (username == null) return;
+
+        String password = getRegistrationInput("Enter password: ");
+        if (password == null) return;
 
         System.out.println("\nSelect Role:");
         System.out.println("1. SYSTEM_ADMINISTRATOR");
         System.out.println("2. CASHIER");
         System.out.println("3. STORE_MANAGER");
         System.out.println("4. INVENTORY_STAFF");
+        System.out.println("0. Cancel Registration");
 
-        int roleChoice = getValidatedChoice(1, 4);
+        String role = "";
 
-        String role;
-        if (roleChoice == 1) {
-            role = "SYSTEM_ADMINISTRATOR";
-        } else if (roleChoice == 2) {
-            role = "CASHIER";
-        } else if (roleChoice == 3) {
-            role = "STORE_MANAGER";
-        } else {
-            role = "INVENTORY_STAFF";
+        while (true) {
+
+            System.out.print("Enter role choice: ");
+            String choice = ConsoleInput.sc.nextLine().trim();
+
+            if (choice.equals("0")) {
+                System.out.println("Registration cancelled.");
+                return;
+            }
+
+            switch (choice) {
+
+                case "1" -> role = "SYSTEM_ADMINISTRATOR";
+                case "2" -> role = "CASHIER";
+                case "3" -> role = "STORE_MANAGER";
+                case "4" -> role = "INVENTORY_STAFF";
+
+                default -> {
+                    System.out.println("Invalid choice. Select 1-4 or 0 to cancel.");
+                    continue;
+                }
+            }
+
+            break;
         }
 
-        System.out.print("Contact Number: ");
-        String contact = ConsoleInput.sc.nextLine().trim();
+        String contactNumber = getRegistrationInput("Enter contact number: ");
+        if (contactNumber == null) return;
 
-        if (fullName.isEmpty() || username.isEmpty()
-                || password.isEmpty() || contact.isEmpty()) {
-            System.out.println("All fields are required.");
+        System.out.println("\n========== REGISTRATION SUMMARY ==========");
+        System.out.println("Full Name: " + fullName);
+        System.out.println("Username: " + username);
+        System.out.println("Role: " + role);
+        System.out.println("Contact Number: " + contactNumber);
+        System.out.println("Password: [Hidden]");
+
+        if (!confirmRegistration()) {
+            System.out.println("Registration cancelled.");
             return;
         }
 
-        boolean success = UserDao.register(
-                fullName, username, password, role, contact
-        );
-
-        System.out.println(
-                success
-                        ? "Registration successful (status: PENDING)."
-                        : "Registration failed."
+        UserDao.register(
+                fullName,
+                username,
+                password,
+                role,
+                contactNumber
         );
     }
+
+    private static String getRegistrationInput(String prompt) {
+
+        while (true) {
+
+            System.out.print(prompt);
+            String input = ConsoleInput.sc.nextLine().trim();
+
+            if (input.equals("0")) {
+                System.out.println("Registration cancelled.");
+                return null;
+            }
+
+            if (!input.isEmpty()) {
+                return input;
+            }
+
+            System.out.println("This field cannot be empty.");
+        }
+    }
+
+    private static boolean confirmRegistration() {
+
+        while (true) {
+
+            System.out.print("Confirm registration? (Y/N): ");
+            String answer = ConsoleInput.sc.nextLine().trim();
+
+            if (answer.equalsIgnoreCase("Y")) {
+                return true;
+            }
+
+            if (answer.equalsIgnoreCase("N") || answer.equals("0")) {
+                return false;
+            }
+
+            System.out.println("Enter Y to confirm or N/0 to cancel.");
+        }
+    }
+
 
     private static void loginFlow() {
 
@@ -149,10 +213,10 @@ public class Authentication {
                     CashierMenu.showCashierMenu();
 
             case "STORE_MANAGER" ->
-                    ManagerMenu.showManagerMenu();
+                    ManagerMenu.showManagerMenu(user);
 
             case "INVENTORY_STAFF" ->
-                    InventoryMenu.showInventoryMenu();
+                    InventoryMenu.showInventoryMenu(user);
 
             default ->
                     System.out.println("Unknown user role.");
