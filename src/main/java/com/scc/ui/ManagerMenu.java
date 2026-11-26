@@ -25,10 +25,12 @@ public class ManagerMenu {
             System.out.println("6. View Low-Stock Products");
             System.out.println("7. View Inventory Movement History");
             System.out.println("8. Void a Transaction");
-            System.out.println("9. Back to Main Menu");
+            System.out.println("9. View Daily, Weekly, and Monthly Sales Reports");
+            System.out.println("10. View Inventory Report");
+            System.out.println("11. Back to Main Menu");
             System.out.println("======================================");
 
-            int choice = getNumber("Enter choice: ", 1, 9);
+            int choice = getNumber("Enter choice: ", 1, 11);
 
             switch (choice) {
 
@@ -58,7 +60,13 @@ public class ManagerMenu {
                 case 8 ->
                         voidTransaction(manager);
 
-                case 9 -> {
+                case 9 ->
+                        ManagerDao.viewPeriodSalesReports(manager.userId());
+
+                case 10 ->
+                        ManagerDao.viewInventoryReport(manager.userId());
+
+                case 11 -> {
                     System.out.println("Returning to main menu...");
                     return;
                 }

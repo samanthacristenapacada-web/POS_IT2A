@@ -1,6 +1,7 @@
 
 package com.scc.ui;
 
+import com.scc.dao.DashboardDao;
 import com.scc.dao.InventoryDao;
 import com.scc.model.User;
 
@@ -8,14 +9,18 @@ public class InventoryMenu {
 
     public static void showInventoryMenu(User inventoryStaff) {
 
+        // Display dashboard immediately after login.
+        DashboardDao.displayInventoryOverview();
+
         while (true) {
 
-            System.out.println("\n========== INVENTORY MENU ==========");
+            System.out.println("\n========== INVENTORY STAFF MENU ==========");
             System.out.println("1. View Inventory");
             System.out.println("2. Update Product Details");
             System.out.println("3. Delete Product");
             System.out.println("4. Back to Main Menu");
-            System.out.println("====================================");
+            System.out.println("5. Refresh Dashboard Overview");
+            System.out.println("==========================================");
 
             System.out.print("Enter choice: ");
             String choice = ConsoleInput.sc.nextLine().trim();
@@ -39,6 +44,11 @@ public class InventoryMenu {
 
                 case "4" -> {
                     return;
+                }
+
+                case "5" -> {
+                    DashboardDao.displayInventoryOverview();
+                    pause();
                 }
 
                 default -> System.out.println("Invalid choice.");
@@ -216,7 +226,11 @@ public class InventoryMenu {
         }
     }
 
+    // ==========================================
+    // PAUSE
+    // ==========================================
     private static void pause() {
+
         System.out.println("\nPress ENTER to continue...");
         ConsoleInput.sc.nextLine();
     }

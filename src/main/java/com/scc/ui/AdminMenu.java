@@ -7,12 +7,15 @@ import com.scc.model.User;
 import com.scc.dao.SalesDao;
 import java.util.List;
 import java.util.Scanner;
+import com.scc.dao.DashboardDao;
 
 public class AdminMenu {
 
     private static final Scanner sc = ConsoleInput.sc;
 
     public static void showAdminMenu(User currentAdmin) {
+
+        DashboardDao.displayAdminOverview();
 
         while (true) {
 
@@ -30,10 +33,11 @@ public class AdminMenu {
                 6. Delete User Account
                 7. View System Audit Logs
                 8. Void a Transaction
-                9. Logout
+                9. Refresh Dashboard Overview
+                10. Logout
                 """);
 
-                    int choice = readIntInput("Choose an option (1-9): ");
+                    int choice = readIntInput("Choose an option (1-10): ");
 
             switch (choice) {
 
@@ -53,7 +57,9 @@ public class AdminMenu {
 
                 case 8 -> voidTransaction(currentAdmin);
 
-                case 9 -> {
+                case 9 -> DashboardDao.displayAdminOverview();
+
+                case 10 -> {
                     System.out.println("Logging out...");
                     return;
                 }

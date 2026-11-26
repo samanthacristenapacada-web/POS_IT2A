@@ -517,4 +517,377 @@ public class ManagerDao {
     }
 
 
+    // ==========================================
+    // DAILY, WEEKLY, AND MONTHLY SALES REPORTS
+    // ==========================================
+    public static void viewPeriodSalesReports(int managerId) {
+
+        String sql = """
+            WITH periods(label, start_date, end_date, sort_order) AS (
+
+                SELECT
+                    'DAILY',
+                    date('now', 'localtime'),
+                    date('now', 'localtime', '+1 day'),
+                    1
+
+                UNION ALL
+
+                SELECT
+                    'WEEKLY',
+                    date(
+                        'now',
+                        'localtime',
+                        '-' || (
+                            (CAST(strftime('%w', 'now', 'localtime')
+                            AS INTEGER) + 6) % 7
+                        ) || ' days'
+                    ),
+                    date('now', 'localtime', '+1 day'),
+                    2
+
+                UNION ALL
+
+                SELECT
+                    'MONTHLY',
+                    date('now', 'localtime', 'start of month'),
+                    date('now', 'localtime', '+1 day'),
+                    3
+            )
+
+            SELECT
+                P.label AS ReportPeriod,
+
+                COUNT(
+                    CASE
+                        WHEN UPPER(S.TransactionStatus) = 'COMPLETED'
+                        THEN 1
+                    END
+                ) AS CompletedTransactions,
+
+                COUNT(
+                    CASE
+                        WHEN UPPER(S.TransactionStatus) = 'VOIDED'
+                        THEN 1
+                    END
+                ) AS VoidedTransactions,
+
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN UPPER(S.TransactionStatus) = 'COMPLETED'
+                            THEN S.TotalAmount
+                            ELSE 0
+                        END
+                    ), 0
+                ) AS TotalRevenue,
+
+                COALESCE(
+                    AVG(
+                        CASE
+                            WHEN UPPER(S.TransactionStatus) = 'COMPLETED'
+                            THEN S.TotalAmount
+                        END
+                    ), 0
+                ) AS AverageTransaction
+
+            FROM periods P
+
+            LEFT JOIN SalesTransactions S
+                ON date(S.TransactionDate, 'localtime')
+                    >= P.start_date
+                AND date(S.TransactionDate, 'localtime')
+                    < P.end_date
+
+            GROUP BY P.label, P.sort_order
+            ORDER BY P.sort_order
+            """;
+
+        try (Connection conn = DatabaseConnection.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            System.out.println(
+                    "\n========== PERIOD SALES REPORTS =========="
+            );
+
+            while (rs.next()) {
+
+                System.out.println(
+                        "\n---------- "
+                                + rs.getString("ReportPeriod")
+                                + " SALES ----------"
+                );
+
+                System.out.println(
+                        "Completed Transactions: "
+                                + rs.getInt("CompletedTransactions")
+                );
+
+                System.out.println(
+                        "Voided Transactions: "
+                                + rs.getInt("VoidedTransactions")
+                );
+
+                System.out.printf(
+                        "Total Revenue: PHP %,.2f%n",
+                        rs.getDouble("TotalRevenue")
+                );
+
+                System.out.printf(
+                        "Average Transaction: PHP %,.2f%n",
+                        rs.getDouble("AverageTransaction")
+                );
+            }
+
+            System.out.println(
+                    "\n==========================================="
+            );
+
+            ActivityLogDao.logAction(
+                    conn,
+                    managerId,
+                    "VIEW_PERIOD_SALES_REPORTS",
+                    "SalesTransactions",
+                    "Manager viewed daily, weekly, and monthly sales reports."
+            );
+
+        } catch (SQLException e) {
+
+            System.out.println(
+                    "Error generating period sales reports: "
+                            + e.getMessage()
+            );
+        }
+    }
+
+
+    // ==========================================
+    // INVENTORY REPORT
+    // ==========================================
+    public static void viewInventoryReport(int managerId) {
+
+        String overviewSql = """
+            SELECT
+                COUNT(*) AS TotalProducts,
+
+                COALESCE(SUM(StockQuantity), 0)
+                    AS TotalUnits,
+
+                COALESCE(SUM(
+                    StockQuantity * UnitPrice
+                ), 0) AS TotalStockValue,
+
+                SUM(CASE
+                    WHEN StockQuantity > 0
+                     AND StockQuantity <= ReorderLevel
+                    THEN 1 ELSE 0
+                END) AS LowStockProducts,
+
+                SUM(CASE
+                    WHEN StockQuantity = 0
+                    THEN 1 ELSE 0
+                END) AS OutOfStockProducts
+
+            FROM Products
+            """;
+
+        String categorySql = """
+            SELECT
+                COALESCE(Category, 'Uncategorized')
+                    AS ProductCategory,
+
+                COUNT(*) AS ProductCount,
+
+                COALESCE(SUM(StockQuantity), 0)
+                    AS TotalUnits,
+
+                COALESCE(SUM(
+                    StockQuantity * UnitPrice
+                ), 0) AS CategoryValue
+
+            FROM Products
+
+            GROUP BY Category
+            ORDER BY Category
+            """;
+
+        String movementSql = """
+            SELECT
+                MovementType,
+                COUNT(*) AS MovementCount,
+                COALESCE(SUM(QuantityChanged), 0)
+                    AS TotalQuantity
+
+            FROM Inventory_Logs
+
+            WHERE Timestamp >= datetime('now', '-30 days')
+
+            GROUP BY MovementType
+            ORDER BY MovementType
+            """;
+
+        try (Connection conn = DatabaseConnection.connect()) {
+
+            // ==================================
+            // PART 1: INVENTORY OVERVIEW
+            // ==================================
+
+            try (PreparedStatement pstmt =
+                         conn.prepareStatement(overviewSql);
+                 ResultSet rs = pstmt.executeQuery()) {
+
+                if (rs.next()) {
+
+                    System.out.println(
+                            "\n========== INVENTORY REPORT =========="
+                    );
+
+                    System.out.println("\nINVENTORY OVERVIEW");
+                    System.out.println("--------------------------------------");
+
+                    System.out.println(
+                            "Total Products: "
+                                    + rs.getInt("TotalProducts")
+                    );
+
+                    System.out.println(
+                            "Total Units in Stock: "
+                                    + rs.getInt("TotalUnits")
+                    );
+
+                    System.out.printf(
+                            "Total Stock Value: PHP %,.2f%n",
+                            rs.getDouble("TotalStockValue")
+                    );
+
+                    System.out.println(
+                            "Low-Stock Products: "
+                                    + rs.getInt("LowStockProducts")
+                    );
+
+                    System.out.println(
+                            "Out-of-Stock Products: "
+                                    + rs.getInt("OutOfStockProducts")
+                    );
+                }
+            }
+
+            // ==================================
+            // PART 2: CATEGORY SUMMARY
+            // ==================================
+
+            System.out.println("\nCATEGORY SUMMARY");
+            System.out.println(
+                    "------------------------------------------------------------"
+            );
+
+            System.out.printf(
+                    "%-20s %-12s %-12s %-15s%n",
+                    "CATEGORY",
+                    "PRODUCTS",
+                    "UNITS",
+                    "VALUE"
+            );
+
+            System.out.println(
+                    "------------------------------------------------------------"
+            );
+
+            boolean hasCategories = false;
+
+            try (PreparedStatement pstmt =
+                         conn.prepareStatement(categorySql);
+                 ResultSet rs = pstmt.executeQuery()) {
+
+                while (rs.next()) {
+
+                    hasCategories = true;
+
+                    System.out.printf(
+                            "%-20s %-12d %-12d PHP %,.2f%n",
+                            rs.getString("ProductCategory"),
+                            rs.getInt("ProductCount"),
+                            rs.getInt("TotalUnits"),
+                            rs.getDouble("CategoryValue")
+                    );
+                }
+            }
+
+            if (!hasCategories) {
+                System.out.println("No product categories found.");
+            }
+
+            // ==================================
+            // PART 3: INVENTORY MOVEMENTS
+            // LAST 30 DAYS
+            // ==================================
+
+            System.out.println("\nINVENTORY MOVEMENT SUMMARY");
+            System.out.println("(Last 30 Days)");
+            System.out.println(
+                    "------------------------------------------------------------"
+            );
+
+            System.out.printf(
+                    "%-25s %-18s %-18s%n",
+                    "MOVEMENT TYPE",
+                    "RECORDS",
+                    "TOTAL QUANTITY"
+            );
+
+            System.out.println(
+                    "------------------------------------------------------------"
+            );
+
+            boolean hasMovements = false;
+
+            try (PreparedStatement pstmt =
+                         conn.prepareStatement(movementSql);
+                 ResultSet rs = pstmt.executeQuery()) {
+
+                while (rs.next()) {
+
+                    hasMovements = true;
+
+                    System.out.printf(
+                            "%-25s %-18d %-18d%n",
+                            rs.getString("MovementType"),
+                            rs.getInt("MovementCount"),
+                            rs.getInt("TotalQuantity")
+                    );
+                }
+            }
+
+            if (!hasMovements) {
+                System.out.println(
+                        "No inventory movements recorded in the last 30 days."
+                );
+            }
+
+            System.out.println(
+                    "\n============================================================"
+            );
+
+            // ==================================
+            // PART 4: AUDIT LOG
+            // ==================================
+
+            ActivityLogDao.logAction(
+                    conn,
+                    managerId,
+                    "VIEW_INVENTORY_REPORT",
+                    "Products",
+                    "Manager viewed inventory valuation, category, "
+                            + "stock status, and movement reports."
+            );
+
+        } catch (SQLException e) {
+
+            System.out.println(
+                    "Error generating inventory report: "
+                            + e.getMessage()
+            );
+        }
+    }
 }
