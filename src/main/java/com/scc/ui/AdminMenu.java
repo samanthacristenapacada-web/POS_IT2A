@@ -4,7 +4,7 @@ import com.scc.dao.ActivityLogDao;
 import com.scc.dao.UserDao;
 import com.scc.model.ActivityLog;
 import com.scc.model.User;
-
+import com.scc.dao.SalesDao;
 import java.util.List;
 import java.util.Scanner;
 
@@ -18,23 +18,22 @@ public class AdminMenu {
 
             System.out.println("""
 
-                    ========================================
-                              ADMIN DASHBOARD
-                    ========================================
+                ========================================
+                          ADMIN DASHBOARD
+                ========================================
+        
+                1. View All Users
+                2. View Pending User Approvals
+                3. Approve User Registration
+                4. Add New User
+                5. Update User Role / Status
+                6. Delete User Account
+                7. View System Audit Logs
+                8. Void a Transaction
+                9. Logout
+                """);
 
-                    1. View All Users
-                    2. View Pending User Approvals
-                    3. Approve User Registration
-                    4. Add New User
-                    5. Update User Role / Status
-                    6. Delete User Account
-                    7. View System Audit Logs
-                    8. Logout
-                    """);
-
-            int choice =
-                    readIntInput(
-                            "Choose an option (1-8): ");
+                    int choice = readIntInput("Choose an option (1-9): ");
 
             switch (choice) {
 
@@ -52,7 +51,9 @@ public class AdminMenu {
 
                 case 7 -> auditLogsMenu();
 
-                case 8 -> {
+                case 8 -> voidTransaction(currentAdmin);
+
+                case 9 -> {
                     System.out.println("Logging out...");
                     return;
                 }
@@ -439,6 +440,60 @@ public class AdminMenu {
                     log.description(),
                     log.timestamp());
         }
+    }
+
+    // ==================================================
+// VOID TRANSACTION
+// ==================================================
+
+    private static void voidTransaction(User currentAdmin) {
+
+        System.out.println("\n========== VOID TRANSACTION ==========");
+        System.out.println("Enter 0 to cancel.");
+
+        int transactionId =
+                readIntInput("Enter Transaction ID: ");
+
+        if (transactionId == 0) {
+            System.out.println("Operation cancelled.");
+            return;
+        }
+
+        String reason;
+
+        while (true) {
+            System.out.print("Enter reason for voiding: ");
+            reason = sc.nextLine().trim();
+
+            if (reason.equals("0")) {
+                System.out.println("Operation cancelled.");
+                return;
+            }
+
+            if (!reason.isEmpty()) {
+                break;
+            }
+
+            System.out.println("A reason is required.");
+        }
+
+        System.out.print(
+                "Confirm voiding Transaction #" + transactionId
+                        + "? (Y/N): "
+        );
+
+        String answer = sc.nextLine().trim();
+
+        if (!answer.equalsIgnoreCase("Y")) {
+            System.out.println("Transaction voiding cancelled.");
+            return;
+        }
+
+        SalesDao.voidSale(
+                currentAdmin.userId(),
+                transactionId,
+                reason
+        );
     }
 
     // ==================================================

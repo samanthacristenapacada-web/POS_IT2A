@@ -131,8 +131,8 @@ public class ManagerDao {
     }
 
     // ==========================================
-    // OPTION 3: ADD NEW PRODUCT
-    // ==========================================
+// ADD NEW PRODUCT WITH INVENTORY HISTORY
+// ==========================================
     public static void addProduct(
             int managerId,
             String productName,
@@ -141,41 +141,94 @@ public class ManagerDao {
             int stock,
             String description) {
 
+        if (productName == null || productName.isBlank()
+                || category == null || category.isBlank()
+                || description == null || description.isBlank()
+                || !Double.isFinite(unitPrice) || unitPrice <= 0
+                || stock < 0) {
+            System.out.println("Invalid product information.");
+            return;
+        }
+
         String sql = """
-            INSERT INTO Products
-            (ProductName, Category, UnitPrice,
-             StockQuantity, Description)
-            VALUES (?, ?, ?, ?, ?)
-            """;
+        INSERT INTO Products
+        (ProductName, Category, UnitPrice,
+         StockQuantity, Description)
+        VALUES (?, ?, ?, ?, ?)
+        """;
 
-        try (Connection conn = DatabaseConnection.connect();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.connect()) {
+            conn.setAutoCommit(false);
 
-            pstmt.setString(1, productName);
-            pstmt.setString(2, category);
-            pstmt.setDouble(3, unitPrice);
-            pstmt.setInt(4, stock);
-            pstmt.setString(5, description);
+            try {
+                int productId;
 
-            int rows = pstmt.executeUpdate();
+                try (PreparedStatement pstmt = conn.prepareStatement(
+                        sql, java.sql.Statement.RETURN_GENERATED_KEYS)) {
 
-            if (rows > 0) {
+                    pstmt.setString(1, productName.trim());
+                    pstmt.setString(2, category.trim());
+                    pstmt.setDouble(3, unitPrice);
+                    pstmt.setInt(4, stock);
+                    pstmt.setString(5, description.trim());
+                    pstmt.executeUpdate();
 
-                System.out.println("Product added successfully!");
+                    try (ResultSet keys = pstmt.getGeneratedKeys()) {
+                        if (keys.next()) {
+                            productId = keys.getInt(1);
+                        } else {
+                            try (PreparedStatement idStmt =
+                                         conn.prepareStatement(
+                                                 "SELECT last_insert_rowid()");
+                                 ResultSet rs = idStmt.executeQuery()) {
+                                if (!rs.next()) {
+                                    throw new SQLException(
+                                            "Could not retrieve Product ID.");
+                                }
+                                productId = rs.getInt(1);
+                            }
+                        }
+                    }
+                }
+
+                InventoryLogDao.logMovement(
+                        conn,
+                        productId,
+                        productName.trim(),
+                        managerId,
+                        "INITIAL_STOCK",
+                        stock,
+                        0,
+                        stock,
+                        "Initial stock recorded when product was added."
+                );
 
                 ActivityLogDao.logAction(
+                        conn,
                         managerId,
                         "PRODUCT_ADDED",
                         "Products",
-                        "Manager added product: " + productName
-                                + ", Price: PHP " + unitPrice
-                                + ", Initial stock: " + stock
+                        "Added " + productName.trim()
+                                + " with price PHP " + unitPrice
+                                + " and initial stock " + stock
                 );
+
+                conn.commit();
+
+                System.out.println("Product added successfully!");
+                System.out.println("Product ID: " + productId);
+
+            } catch (Exception e) {
+                conn.rollback();
+                System.out.println("Product addition failed: "
+                        + e.getMessage());
+                System.out.println("Changes were rolled back.");
+            } finally {
+                conn.setAutoCommit(true);
             }
 
         } catch (SQLException e) {
-            System.out.println("Error adding product: "
-                    + e.getMessage());
+            System.out.println("Error adding product: " + e.getMessage());
         }
     }
 
