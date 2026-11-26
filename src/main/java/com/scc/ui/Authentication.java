@@ -206,15 +206,20 @@ public class Authentication {
 
         switch (user.role().toUpperCase()) {
 
-            case "SYSTEM_ADMINISTRATOR" -> AdminMenu.showAdminMenu(user);
+            case "SYSTEM_ADMINISTRATOR" ->
+                    AdminMenu.showAdminMenu(user);
 
-            case "CASHIER" -> CashierMenu.showCashierMenu(user);
+            case "CASHIER" ->
+                    CashierMenu.showCashierMenu(user);
 
-            case "STORE_MANAGER" -> ManagerMenu.showManagerMenu(user);
+            case "STORE_MANAGER" ->
+                    ManagerMenu.showManagerMenu(user);
 
-            case "INVENTORY_STAFF" -> InventoryMenu.showInventoryMenu(user);
+            case "INVENTORY_STAFF" ->
+                    InventoryMenu.showInventoryMenu(user);
 
-            default -> System.out.println("Unknown user role.");
+            default ->
+                    System.out.println("Unknown user role.");
         }
     }
 }
