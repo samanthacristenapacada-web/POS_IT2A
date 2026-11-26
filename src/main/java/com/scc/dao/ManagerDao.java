@@ -179,49 +179,115 @@ public class ManagerDao {
         }
     }
 
+
     // ==========================================
-    // OPTION 4: RESTOCK PRODUCT
+    // RESTOCK PRODUCT WITH INVENTORY HISTORY
     // ==========================================
     public static void updateStock(
             int managerId,
             int productId,
             int quantityToAdd) {
 
-        String sql = """
+        if (quantityToAdd <= 0) {
+            System.out.println("Quantity must be greater than zero.");
+            return;
+        }
+
+        String selectSql = """
+            SELECT ProductName, StockQuantity
+            FROM Products
+            WHERE ProductID = ?
+        """;
+
+        String updateSql = """
             UPDATE Products
             SET StockQuantity = StockQuantity + ?
             WHERE ProductID = ?
-            """;
+        """;
 
-        try (Connection conn = DatabaseConnection.connect();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DatabaseConnection.connect()) {
 
-            pstmt.setInt(1, quantityToAdd);
-            pstmt.setInt(2, productId);
+            conn.setAutoCommit(false);
 
-            int rows = pstmt.executeUpdate();
+            try {
 
-            if (rows > 0) {
+                String productName;
+                int previousStock;
 
-                System.out.println("Stock updated successfully!");
+                try (PreparedStatement pstmt =
+                             conn.prepareStatement(selectSql)) {
+
+                    pstmt.setInt(1, productId);
+
+                    try (ResultSet rs = pstmt.executeQuery()) {
+
+                        if (!rs.next()) {
+                            throw new SQLException("Product ID not found.");
+                        }
+
+                        productName = rs.getString("ProductName");
+                        previousStock = rs.getInt("StockQuantity");
+                    }
+                }
+
+                try (PreparedStatement pstmt =
+                             conn.prepareStatement(updateSql)) {
+
+                    pstmt.setInt(1, quantityToAdd);
+                    pstmt.setInt(2, productId);
+
+                    if (pstmt.executeUpdate() != 1) {
+                        throw new SQLException("Stock update failed.");
+                    }
+                }
+
+                int newStock = previousStock + quantityToAdd;
+
+                InventoryLogDao.logMovement(
+                        conn,
+                        productId,
+                        productName,
+                        managerId,
+                        "STOCK_RESTOCKED",
+                        quantityToAdd,
+                        previousStock,
+                        newStock,
+                        "Product restocked by Store Manager."
+                );
 
                 ActivityLogDao.logAction(
+                        conn,
                         managerId,
                         "STOCK_REFILLED",
                         "Products",
-                        "Manager added " + quantityToAdd
-                                + " units to Product ID " + productId
+                        "Added " + quantityToAdd
+                                + " units to " + productName
+                                + ". Previous stock: " + previousStock
+                                + ". New stock: " + newStock
                 );
 
-            } else {
-                System.out.println("Product ID not found.");
+                conn.commit();
+
+                System.out.println("Stock updated successfully!");
+                System.out.println("Previous stock: " + previousStock);
+                System.out.println("New stock: " + newStock);
+
+            } catch (Exception e) {
+
+                conn.rollback();
+
+                System.out.println("Restocking failed: " + e.getMessage());
+                System.out.println("Changes were rolled back.");
+
+            } finally {
+                conn.setAutoCommit(true);
             }
 
         } catch (SQLException e) {
-            System.out.println("Error updating stock: "
-                    + e.getMessage());
+            System.out.println("Error updating stock: " + e.getMessage());
         }
     }
+
 
     // ==========================================
     // OPTION 5: MONITOR CASHIER ACTIVITIES
@@ -310,4 +376,92 @@ public class ManagerDao {
 
         return value;
     }
+
+
+    // ==========================================
+    // VIEW LOW-STOCK PRODUCTS
+    // ==========================================
+    public static void viewLowStock(int managerId) {
+
+        String sql = """
+            SELECT ProductID, ProductName, Category,
+                   StockQuantity, ReorderLevel
+            FROM Products
+            WHERE StockQuantity <= ReorderLevel
+            ORDER BY StockQuantity ASC
+        """;
+
+        try (Connection conn = DatabaseConnection.connect();
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            System.out.println("\n========== LOW-STOCK PRODUCTS ==========");
+
+            System.out.printf(
+                    "%-10s %-25s %-15s %-12s %-12s%n",
+                    "PRODUCT ID",
+                    "PRODUCT NAME",
+                    "CATEGORY",
+                    "CURRENT",
+                    "REORDER"
+            );
+
+            System.out.println(
+                    "----------------------------------------------------------------"
+            );
+
+            boolean found = false;
+
+            while (rs.next()) {
+
+                found = true;
+
+                System.out.printf(
+                        "%-10d %-25s %-15s %-12d %-12d%n",
+                        rs.getInt("ProductID"),
+                        rs.getString("ProductName"),
+                        rs.getString("Category"),
+                        rs.getInt("StockQuantity"),
+                        rs.getInt("ReorderLevel")
+                );
+            }
+
+            if (!found) {
+                System.out.println("No low-stock products found.");
+            }
+
+            System.out.println("========================================");
+
+            ActivityLogDao.logAction(
+                    conn,
+                    managerId,
+                    "VIEW_LOW_STOCK",
+                    "Products",
+                    "Manager viewed low-stock products."
+            );
+
+        } catch (SQLException e) {
+            System.out.println(
+                    "Error viewing low-stock products: " + e.getMessage()
+            );
+        }
+    }
+
+
+    // ==========================================
+    // VIEW INVENTORY MOVEMENT HISTORY
+    // ==========================================
+    public static void viewInventoryHistory(int managerId) {
+
+        InventoryLogDao.viewInventoryHistory();
+
+        ActivityLogDao.logAction(
+                managerId,
+                "VIEW_INVENTORY_HISTORY",
+                "Inventory_Logs",
+                "Manager viewed inventory movement history."
+        );
+    }
+
+
 }

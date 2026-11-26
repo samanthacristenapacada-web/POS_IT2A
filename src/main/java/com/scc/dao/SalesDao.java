@@ -233,14 +233,44 @@ public class SalesDao {
                     pstmt.executeBatch();
                 }
 
+
                 // ----------------------------------
                 // STEP 4: DEDUCT PRODUCT STOCK
                 // ----------------------------------
 
-                try (PreparedStatement pstmt =
+                String currentStockSql = """
+                    SELECT ProductName, StockQuantity
+                    FROM Products
+                    WHERE ProductID = ?
+                """;
+
+                try (PreparedStatement stockCheck =
+                             conn.prepareStatement(currentStockSql);
+                     PreparedStatement pstmt =
                              conn.prepareStatement(stockSql)) {
 
                     for (SaleReceipt.SaleLine item : saleLines) {
+
+                        int previousStock;
+                        String productName;
+
+                        stockCheck.setInt(1, item.productId());
+
+                        try (ResultSet rs = stockCheck.executeQuery()) {
+
+                            if (!rs.next()) {
+                                throw new SQLException(
+                                        "Product not found: "
+                                                + item.productName()
+                                );
+                            }
+
+                            previousStock =
+                                    rs.getInt("StockQuantity");
+
+                            productName =
+                                    rs.getString("ProductName");
+                        }
 
                         pstmt.setInt(1, item.quantity());
                         pstmt.setInt(2, item.productId());
@@ -255,6 +285,21 @@ public class SalesDao {
                             );
                         }
 
+                        int newStock = previousStock - item.quantity();
+
+                        InventoryLogDao.logMovement(
+                                conn,
+                                item.productId(),
+                                productName,
+                                cashierId,
+                                "SALE_DEDUCTED",
+                                item.quantity(),
+                                previousStock,
+                                newStock,
+                                "Stock deducted from Sale #"
+                                        + transactionId
+                        );
+
                         ActivityLogDao.logAction(
                                 conn,
                                 cashierId,
@@ -264,10 +309,11 @@ public class SalesDao {
                                         + ": deducted "
                                         + item.quantity()
                                         + " unit(s) of "
-                                        + item.productName()
+                                        + productName
                         );
                     }
                 }
+
 
                 // ----------------------------------
                 // STEP 5: RECORD SALE AUDIT LOG
@@ -543,6 +589,263 @@ public class SalesDao {
             System.out.println(
                     "Error retrieving transaction details: "
                             + e.getMessage()
+            );
+        }
+    }
+
+    // ==========================================
+    // VOID A COMPLETED SALE
+    // ==========================================
+    public static void voidSale(
+            int actorId,
+            int transactionId,
+            String reason) {
+
+        if (reason == null || reason.trim().isEmpty()) {
+            System.out.println("A reason is required to void a sale.");
+            return;
+        }
+
+        String roleSql = """
+            SELECT Role, Status
+            FROM Users
+            WHERE UserID = ?
+        """;
+
+        String transactionSql = """
+            SELECT TransactionStatus
+            FROM SalesTransactions
+            WHERE TransactionID = ?
+        """;
+
+        String detailsSql = """
+            SELECT
+                D.ProductID,
+                D.Quantity,
+                P.ProductName
+            FROM TransactionDetails D
+            INNER JOIN Products P
+                ON D.ProductID = P.ProductID
+            WHERE D.TransactionID = ?
+        """;
+
+        String stockSql = """
+            SELECT StockQuantity
+            FROM Products
+            WHERE ProductID = ?
+        """;
+
+        String restoreSql = """
+            UPDATE Products
+            SET StockQuantity = StockQuantity + ?
+            WHERE ProductID = ?
+        """;
+
+        String updateTransactionSql = """
+            UPDATE SalesTransactions
+            SET TransactionStatus = 'VOIDED'
+            WHERE TransactionID = ?
+              AND UPPER(TransactionStatus) = 'COMPLETED'
+        """;
+
+        try (Connection conn = DatabaseConnection.connect()) {
+
+            conn.setAutoCommit(false);
+
+            try {
+
+                // STEP 1: CHECK THE USER'S ROLE AND STATUS.
+                boolean authorized = false;
+
+                try (PreparedStatement pstmt =
+                             conn.prepareStatement(roleSql)) {
+
+                    pstmt.setInt(1, actorId);
+
+                    try (ResultSet rs = pstmt.executeQuery()) {
+
+                        if (rs.next()) {
+
+                            String role = rs.getString("Role");
+                            String status = rs.getString("Status");
+
+                            authorized =
+                                    "ACTIVE".equalsIgnoreCase(status)
+                                            && (
+                                            "SYSTEM_ADMINISTRATOR".equalsIgnoreCase(role)
+                                                    || "STORE_MANAGER".equalsIgnoreCase(role)
+                                    );
+                        }
+                    }
+                }
+
+                if (!authorized) {
+                    throw new SQLException(
+                            "Only active System Administrators and Store Managers "
+                                    + "can void transactions."
+                    );
+                }
+
+                // STEP 2: CHECK IF THE TRANSACTION EXISTS
+                // AND IS STILL COMPLETED.
+                try (PreparedStatement pstmt =
+                             conn.prepareStatement(transactionSql)) {
+
+                    pstmt.setInt(1, transactionId);
+
+                    try (ResultSet rs = pstmt.executeQuery()) {
+
+                        if (!rs.next()) {
+                            throw new SQLException(
+                                    "Transaction ID not found."
+                            );
+                        }
+
+                        String status =
+                                rs.getString("TransactionStatus");
+
+                        if (!"COMPLETED".equalsIgnoreCase(status)) {
+                            throw new SQLException(
+                                    "Only completed transactions can be voided."
+                            );
+                        }
+                    }
+                }
+
+                // STEP 3: RESTORE STOCK FOR EACH SOLD PRODUCT.
+                try (PreparedStatement detailsStmt =
+                             conn.prepareStatement(detailsSql);
+                     PreparedStatement stockStmt =
+                             conn.prepareStatement(stockSql);
+                     PreparedStatement restoreStmt =
+                             conn.prepareStatement(restoreSql)) {
+
+                    detailsStmt.setInt(1, transactionId);
+
+                    try (ResultSet rs = detailsStmt.executeQuery()) {
+
+                        boolean hasItems = false;
+
+                        while (rs.next()) {
+
+                            hasItems = true;
+
+                            int productId = rs.getInt("ProductID");
+                            int quantity = rs.getInt("Quantity");
+                            String productName =
+                                    rs.getString("ProductName");
+
+                            stockStmt.setInt(1, productId);
+
+                            int previousStock;
+
+                            try (ResultSet stockRs =
+                                         stockStmt.executeQuery()) {
+
+                                if (!stockRs.next()) {
+                                    throw new SQLException(
+                                            "Product no longer exists: "
+                                                    + productName
+                                    );
+                                }
+
+                                previousStock =
+                                        stockRs.getInt("StockQuantity");
+                            }
+
+                            restoreStmt.setInt(1, quantity);
+                            restoreStmt.setInt(2, productId);
+
+                            if (restoreStmt.executeUpdate() != 1) {
+                                throw new SQLException(
+                                        "Unable to restore stock for "
+                                                + productName
+                                );
+                            }
+
+                            int newStock = previousStock + quantity;
+
+                            InventoryLogDao.logMovement(
+                                    conn,
+                                    productId,
+                                    productName,
+                                    actorId,
+                                    "SALE_VOID_RESTOCK",
+                                    quantity,
+                                    previousStock,
+                                    newStock,
+                                    "Stock restored from voided Sale #"
+                                            + transactionId
+                            );
+                        }
+
+                        if (!hasItems) {
+                            throw new SQLException(
+                                    "No transaction details were found."
+                            );
+                        }
+                    }
+                }
+
+                // STEP 4: CHANGE TRANSACTION STATUS.
+                try (PreparedStatement pstmt =
+                             conn.prepareStatement(updateTransactionSql)) {
+
+                    pstmt.setInt(1, transactionId);
+
+                    if (pstmt.executeUpdate() != 1) {
+                        throw new SQLException(
+                                "Transaction status could not be updated."
+                        );
+                    }
+                }
+
+                // STEP 5: RECORD AUDIT EVENTS.
+                ActivityLogDao.logAction(
+                        conn,
+                        actorId,
+                        "SALE_VOIDED",
+                        "SalesTransactions",
+                        "Transaction #" + transactionId
+                                + " was voided. Reason: " + reason.trim()
+                );
+
+                ActivityLogDao.logAction(
+                        conn,
+                        actorId,
+                        "STOCK_RESTORED",
+                        "Products",
+                        "Stock restored for all items in Transaction #"
+                                + transactionId
+                );
+
+                // STEP 6: COMMIT ALL CHANGES.
+                conn.commit();
+
+                System.out.println(
+                        "Transaction #" + transactionId
+                                + " was successfully voided."
+                );
+
+                System.out.println(
+                        "Product stock has been restored."
+                );
+
+            } catch (Exception e) {
+
+                conn.rollback();
+
+                System.out.println("Unable to void transaction.");
+                System.out.println("Reason: " + e.getMessage());
+                System.out.println("All changes were rolled back.");
+
+            } finally {
+                conn.setAutoCommit(true);
+            }
+
+        } catch (SQLException e) {
+            System.out.println(
+                    "Transaction voiding error: " + e.getMessage()
             );
         }
     }

@@ -2,6 +2,7 @@
 package com.scc.ui;
 
 import com.scc.dao.ManagerDao;
+import com.scc.dao.SalesDao;
 import com.scc.model.User;
 
 public class ManagerMenu {
@@ -9,6 +10,7 @@ public class ManagerMenu {
     public static void showManagerMenu(User manager) {
 
         while (true) {
+
 
             System.out.println("\n======================================");
             System.out.println("             MANAGER DASHBOARD");
@@ -20,10 +22,13 @@ public class ManagerMenu {
             System.out.println("3. Add New Product");
             System.out.println("4. Restock Product");
             System.out.println("5. Monitor Cashier Activities");
-            System.out.println("6. Back to Main Menu");
+            System.out.println("6. View Low-Stock Products");
+            System.out.println("7. View Inventory Movement History");
+            System.out.println("8. Void a Transaction");
+            System.out.println("9. Back to Main Menu");
             System.out.println("======================================");
 
-            int choice = getNumber("Enter choice: ", 1, 6);
+            int choice = getNumber("Enter choice: ", 1, 9);
 
             switch (choice) {
 
@@ -44,13 +49,23 @@ public class ManagerMenu {
                                 manager.userId()
                         );
 
-                case 6 -> {
+                case 6 ->
+                        ManagerDao.viewLowStock(manager.userId());
+
+                case 7 ->
+                        ManagerDao.viewInventoryHistory(manager.userId());
+
+                case 8 ->
+                        voidTransaction(manager);
+
+                case 9 -> {
                     System.out.println("Returning to main menu...");
                     return;
                 }
             }
 
             pause();
+
         }
     }
 
@@ -256,5 +271,41 @@ public class ManagerMenu {
 
         System.out.println("\nPress ENTER to continue...");
         ConsoleInput.sc.nextLine();
+    }
+
+
+    // ==========================================
+    // VOID TRANSACTION
+    // ==========================================
+    private static void voidTransaction(User manager) {
+
+        System.out.println("\n========== VOID TRANSACTION ==========");
+        System.out.println("Enter 0 to cancel.");
+
+        Integer transactionId =
+                getPositiveInt("Enter Transaction ID: ");
+
+        if (transactionId == null) {
+            return;
+        }
+
+        String reason = getRequiredText("Enter reason for voiding: ");
+
+        if (reason == null) {
+            return;
+        }
+
+        if (!confirmAction(
+                "Are you sure you want to void this transaction?"
+        )) {
+            System.out.println("Transaction voiding cancelled.");
+            return;
+        }
+
+        SalesDao.voidSale(
+                manager.userId(),
+                transactionId,
+                reason
+        );
     }
 }
